@@ -78,12 +78,13 @@ int findMaxNnz(int *rowPtr, int *colIndex, int num_rows, int block_size) {
     return max*block_size;
 }
 
+/* Creates the array of block indexes for the blocked ell format */
 int *createBlockIndex(int *rowPtr, int *colIndex, int num_rows, int block_size, int ell_cols) {
 
     long int mb = num_rows/block_size, nb = ell_cols/block_size;
     if (num_rows % block_size != 0)
         mb++;
-    printf("%ld %ld\n%ld\n", mb, nb, nb*mb);
+
     int *hA_columns = (int *)calloc(nb * mb, sizeof(int));
     int ctr = 0;
 
@@ -122,28 +123,39 @@ int *createBlockIndex(int *rowPtr, int *colIndex, int num_rows, int block_size, 
     return hA_columns; 
 }
 
+/* Creates the array of values for the blocked ell format */
 float *createValueIndex(int *rowPtr, int *colIndex, float *values, int *hA_columns, int num_rows, int block_size, int ell_cols) {
 
+    /* Allocate enough memory for the array */
     float *hA_values = (float *)calloc(num_rows * ell_cols, sizeof(int));
-    long int mb = num_rows/block_size;
+    long int mb = num_rows/block_size, nb = ell_cols/block_size;
     if (num_rows % block_size != 0)
         mb++;
 
-    memset(hA_columns, 0, num_rows * ell_cols * sizeof(int));
+    /* Set all values to 0 */
+    memset(hA_values, 0, num_rows * ell_cols * sizeof(int));
 
+    /* Iterate the blocks in the y axis */
     for (int i=0; i<mb;i++){
-        for (int j = 0; j < block_size; j++) {
-            int id = block_size*i + j;
-            int flag = 0;
-            int ctr = 0;
-            if (id >= num_rows)
-                break;
 
-            for(int k=rowPtr[id]; k<rowPtr[id+1]; k++) {  
-                hA_values[(colIndex[k] - (colIndex[k]/block_size) * block_size) + block_size*ctr] = values[k];
-                if (flag <= colIndex[k]) {
-                    flag = (colIndex[k]/block_size) * block_size + block_size;
-                    ctr++;
+        /* Iterate the lines of each block */
+        for (int l = 0; l<block_size; l++) {
+            int ctr = 0;
+
+            /* Iterate the blocks in the block_id array (x axis) */
+            for (int j = 0; j < nb; j++) {
+                int id = nb*i + j;
+                if (hA_columns[id] == -1)
+                    break;
+
+                /* Iterate each line of the matrix */
+                for(int k=rowPtr[i*block_size+l]; k<rowPtr[i*block_size+l+1]; k++) {  
+
+                    /* If the element is not in the same block, skip*/
+                    if (colIndex[k]/block_size > hA_columns[id])
+                        break;
+                    else if (colIndex[k]/block_size == hA_columns[id]) 
+                        hA_values[i*ell_cols*block_size+l*ell_cols+j*block_size+(colIndex[k]-(hA_columns[id]*block_size))] = values[k];
                 }
             }
         }
@@ -273,17 +285,11 @@ int main(int argc, char *argv[]) {
     A_nnz = nz;
     /*******************************************************************/
 
-    /* biggest number of nnzs in a row */
     int A_ell_blocksize = 2;
     int A_ell_cols = findMaxNnz(rowPtr, colIndex, A_num_rows, A_ell_blocksize);
     int A_num_blocks = A_ell_cols * A_num_rows / (A_ell_blocksize * A_ell_blocksize);
     int *hA_columns = createBlockIndex(rowPtr, colIndex, A_num_rows, A_ell_blocksize, A_ell_cols);
     float *hA_values = createValueIndex(rowPtr, colIndex, values, hA_columns, A_num_rows, A_ell_blocksize, A_ell_cols);
-
-    for(int i= 0; i < A_num_rows;i++){
-        printf("%f\n", hA_values[i]);
-    }
-    printf("max = %d\n", A_ell_cols);
     
     return 0;
 }
